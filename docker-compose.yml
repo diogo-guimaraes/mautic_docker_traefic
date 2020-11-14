@@ -1,0 +1,81 @@
+version: "3.3"
+
+services:
+
+  traefik:
+    image: "traefik:v2.3"
+    container_name: "traefik"
+    command:
+      - "--log.level=DEBUG"
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge=true"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.myresolver.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
+      - "--certificatesresolvers.myresolver.acme.email=postmaster@localhost"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - "./letsencrypt:/letsencrypt"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+
+  mautic:
+    restart: unless-stopped
+    image: mautic/mautic:latest
+    container_name: mautic_test
+    depends_on:
+      - mysql
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mautic.rule=Host(`localhost`)"
+      - "traefik.http.routers.mautic.entrypoints=websecure"
+      - "traefik.http.routers.mautic.tls.certresolver=myresolver"
+    ports:
+      - "80:80"
+    environment:
+      MAUTIC_DB_HOST: mysql
+      MAUTIC_DB_USER: mautic
+      MAUTIC_DB_PASSWORD: mauticdbpass
+      MAUTIC_TRUSTED_PROXIES: 0.0.0.0/0
+    volumes:
+    - mautic-web:/var/www/html
+
+  mysql:
+    restart: unless-stopped
+    image: mysql:5.6
+    container_name: mysql-mautic
+    environment:
+      MYSQL_ROOT_PASSWORD: mysqlrootpassword
+      MYSQL_DATABASE: mautic
+      MYSQL_USER: mautic
+      MYSQL_PASSWORD: mauticdbpass
+    labels:
+      - "traefik.enable=false"
+    volumes:
+      - mysql:/var/lib/mysql
+  
+  app:
+    depends_on:
+      - mysql
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: phpmyadmin-mautic
+    restart: always
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app.rule=Host(`localhost`)"
+      - "traefik.http.routers.app.entrypoints=websecure"
+      - "traefik.http.routers.app.tls.certresolver=myresolver"
+    ports:
+      - "81:80"
+    environment:
+      PMA_HOST: mysql
+
+volumes:
+  mautic-web:
+    driver: local
+  mysql:
+    driver: local
